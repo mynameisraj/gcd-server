@@ -10,11 +10,9 @@
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <strings.h>
 #include <dispatch/dispatch.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <unistd.h>
 
 // Response code numbers
 #define HTTP_NOT_FOUND       404
@@ -65,16 +63,16 @@ typedef struct {
 #define HTTP_404_STRING "Not Found"
 #define HTTP_501_STRING "Not Implemented"
 
-static void handle_new_client(int sock);
+static void server_handle_new_client(server_t, int sock);
     // Handle a new client. Will run until the client closes the connection
 
 static request_t* read_request_header(int sock);
     // Read in the entire request header. Must free the request
 
-static response_t* create_response(request_t*);
+static response_t* create_response(server_t, request_t*);
     // Creates a response. Must free response_t
 
-static int req_fill(char** field, char* label, char* buf);
+static int request_fill(char** field, char* label, char* buf);
     //  Populates field with value of label from buf.
     //  Assumes format of label: value\r\n
 
@@ -84,7 +82,7 @@ static void request_destroy(request_t*);
 static void response_destroy(response_t*);
     // Frees all memory associated with a response
 
-static char* get_filename_from_request(const char*first_line);
+static char* get_filename_from_request(const char*);
     // Gets the filename from a request
 
 static void error(char*msg) {
@@ -92,7 +90,7 @@ static void error(char*msg) {
     exit(1);
 }
 
-void server_start_on(unsigned int portno) {
+void server_start(server_t server) {
     signal(SIGPIPE, SIG_IGN);
     int sockfd, newsockfd;
     unsigned int len;
@@ -104,12 +102,12 @@ void server_start_on(unsigned int portno) {
     memset((char*) &serv_addr, '\0', sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
-    serv_addr.sin_port = htons(portno);
+    serv_addr.sin_port = htons(server.portno);
     if (bind(sockfd, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0) {
         error("ERROR on binding\n");
     }
     listen(sockfd,10);
-    printf("Started server on port %u\n", portno);
+    printf("Started server on port %u\n", server.portno);
     len = sizeof(cli_addr);
 
     // Main server loop
@@ -122,12 +120,12 @@ void server_start_on(unsigned int portno) {
             error("ERROR on accept.\n");
         }
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            handle_new_client(newsockfd);
+            server_handle_new_client(server, newsockfd);
         });
     }
 }
 
-static void handle_new_client(int sock) {
+static void server_handle_new_client(server_t server, int sock) {
     int written_header;
     printf("Open # %d\n", sock);
     while (1) {
@@ -136,7 +134,7 @@ static void handle_new_client(int sock) {
             // No header
             goto cleanup;
         }
-        response_t* res = create_response(req);
+        response_t* res = create_response(server, req);
         char* response_buf = calloc(MAX_BODY_LEN, 1);
         if (!response_buf) {
             error("ERROR Could not form response buffer\n");
@@ -196,13 +194,13 @@ static request_t* read_request_header(int sock) {
     strncpy(req->first_line, req_buf, first_line_len);
 
     int error;
-    error = req_fill(&req->host,            "Host",            req_buf);
-    error = req_fill(&req->accept_encoding, "Accept-Encoding", req_buf);
-    error = req_fill(&req->accept,          "Accept",          req_buf);
-    error = req_fill(&req->user_agent,      "User-Agent",      req_buf);
-    error = req_fill(&req->accept_language, "Accept-Language", req_buf);
-    error = req_fill(&req->dnt,             "DNT",             req_buf);
-    error = req_fill(&req->connection,      "Connection",      req_buf);
+    error = request_fill(&req->host,            "Host",            req_buf);
+    error = request_fill(&req->accept_encoding, "Accept-Encoding", req_buf);
+    error = request_fill(&req->accept,          "Accept",          req_buf);
+    error = request_fill(&req->user_agent,      "User-Agent",      req_buf);
+    error = request_fill(&req->accept_language, "Accept-Language", req_buf);
+    error = request_fill(&req->dnt,             "DNT",             req_buf);
+    error = request_fill(&req->connection,      "Connection",      req_buf);
 
     free(req_buf);
     if (error == -1) {
@@ -213,7 +211,7 @@ static request_t* read_request_header(int sock) {
     return req;
 }
 
-static response_t* create_response(request_t* req) {
+static response_t* create_response(server_t server, request_t* req) {
     response_t* res = calloc(sizeof(response_t), 1);
     const char* response_code_string;
     const char* content_type;
@@ -225,19 +223,9 @@ static response_t* create_response(request_t* req) {
             strcat(filename, "index.html");
         }
 
-        char cwd[1024];
-#ifdef DEBUG
-        strcpy(cwd, DEBUG_WEB_DIR);
-#else
-        if (getcwd(cwd, sizeof(cwd)) == NULL) {
-            request_destroy(req);
-            response_destroy(res);
-            perror("ERROR in getcwd");
-        }
-#endif
-        unsigned long cwd_len = strlen(cwd);
+        unsigned long cwd_len = strlen(server.directory);
         char* web = calloc(strlen(filename)+cwd_len, 1);
-        strncpy(web, cwd, cwd_len);
+        strncpy(web, server.directory, cwd_len);
         strcat(web, filename);
         FILE* file;
         sprintf(operation, "GET %s", filename);
@@ -316,7 +304,7 @@ static response_t* create_response(request_t* req) {
     return res;
 }
 
-static int req_fill(char** field, char* label, char* buf) {
+static int request_fill(char** field, char* label, char* buf) {
     char* start = strstr(buf, label);
     if (start == NULL) return -1;
     start += strlen(label) + 2; // For ": "

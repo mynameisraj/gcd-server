@@ -11,15 +11,17 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <strings.h>
 
-#define DEBUG_WEB_DIR "/Users/raj/dev/server/server/web"
-    // When running in debug, read files from here.
-    // Otherwise, use 'web' directory from where server is run.
+typedef struct {
+    unsigned int portno;
+    char*        directory;
+} server_t;
 
 #define MAX_BODY_LEN (10*1024*1024)
     // Maximum request size (10MB)
 
-void server_start_on(unsigned int portno);
-    // Start on the given port
+void server_start(server_t);
+    // Start
 
 #endif
