@@ -7,7 +7,10 @@
 //
 
 #include "server.h"
+
+#ifndef DEBUG
 #include <unistd.h>
+#endif
 
 #define DEBUG_WEB_DIR "/Users/raj/dev/server/server/web"
     // When running in debug, read files from here.
