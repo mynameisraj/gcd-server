@@ -17,7 +17,7 @@
     // Otherwise, use 'web' directory from where server is run.
 
 int main(int argc, char*argv[]) {
-    if (argc < 1) {
+    if (argc < 2) {
         printf("ERROR, no port provided\n");
         exit(1);
     }
@@ -26,8 +26,6 @@ int main(int argc, char*argv[]) {
     strcpy(cwd, DEBUG_WEB_DIR);
 #else
     if (getcwd(cwd, sizeof(cwd)) == NULL) {
-        request_destroy(req);
-        response_destroy(res);
         perror("ERROR in getcwd");
     }
 #endif
